@@ -5,6 +5,8 @@
 //OneWire
 //Partition scheme: Huge App ""
 
+//3 Mar added code to better format time and date.
+
 
 //*************************************************************************
 //****Libraries included
@@ -53,17 +55,28 @@ bool wifiCon;
 bool boolBlink;
 
 float temp;
+float minTemp;
+float maxTemp;
+
 float hum;
+float minHum;
+float maxHum;
+
 float tCur;
 
 String ssid;
 String password;
 
 int wIFI_Retry;
+int arrayCount;
+
+//declare float arrays
+float tempArray[1440];
+float humArray[1440];
 
 
 //millisDelay timers
-millisDelay timer;
+millisDelay timerMinMax;
 millisDelay timerBlink;//used as a 1 second timer that is used for updating the CPU running led and lcd update.
 millisDelay timerPump;//used to time the turn on of the pump as defined.
 millisDelay timerPumpON;//used to time the time the pump is ON once switched on
@@ -116,14 +129,15 @@ void setup() {
   //ledcAttach(PUMP_OUT,freq, resolution);
     
   u8g2.begin();
-  u8g2.setContrast(75);
-  u8g2.setFont(u8g2_font_ncenB08_tr);
+  //u8g2.setContrast(75);
+  //u8g2.setFont(u8g2_font_ncenB08_tr);
+  u8g2.setFont(u8g2_font_9x15B_mr);
   u8g2.clearBuffer();
   u8g2.setCursor(0, 10);
   u8g2.print("Initializing...");
   u8g2.sendBuffer();
   
-  updateLCD();
+  //updateLCD();
  
   //Wifi Settings
   
@@ -134,6 +148,12 @@ void setup() {
   int connCount = 0;
   while ((WiFi.status() != WL_CONNECTED)&&connCount <201) {
     wifiCon=true;
+	u8g2.clearBuffer();
+	u8g2.setCursor(20, 10);
+	u8g2.print("Wifi Connecting");
+	u8g2.setCursor(0,50);
+    u8g2.print(wifiCon);
+	u8g2.sendBuffer();
     if (connCount == 200)
     {
       
@@ -175,7 +195,10 @@ void setup() {
   
   temp = dht.readTemperature();//reads the temperature from the DHT22
   hum = dht.readHumidity();//reads the humidity from the DHT22
-  timerBlink.start(750);
+  timerBlink.start(1000);
+  timerMinMax.start(60000);
+  
+  blink();
   //bleTime.start(45000);//time the bluetooth config stays active removed for v3_1
   //systemState=1;
  
@@ -189,6 +212,11 @@ void loop() {
   {
     blink();    
     timerBlink.restart();//restart the timer after it has lapsed.
+  }
+  if (timerMinMax.justFinished())
+  {
+	  getMinMax();
+	  timerMinMax.restart();
   }
   
 }
@@ -218,7 +246,7 @@ void blink()
 		Serial.println("Wifi Auto Retry");
 		wIFI_Retry = 0;
 		WiFi.disconnect();
-		WiFi.begin(ssid, password);
+		WiFi.begin("CashX", "CASHX1819");
 		int connCount = 0;
 		while ((WiFi.status() != WL_CONNECTED)&&connCount <201) 
 		{
@@ -287,8 +315,13 @@ void blink()
 
 void updateLCD()
 {
+	u8g2.setFont(u8g2_font_inb21_mf);
+	
     u8g2.clearBuffer();	
-    u8g2.setCursor(81,10);//Move the time the top right of the lcd screen.
+	//u8g2.drawLine(0,5,20,5);
+	//Time
+	int offset = u8g2.getStrWidth("00:00");
+    u8g2.setCursor((64-(offset/2)),21);
     if (timeinfo.tm_hour>9)
     {
       u8g2.print(timeinfo.tm_hour);  
@@ -308,28 +341,63 @@ void updateLCD()
       u8g2.print("0");
       u8g2.print(timeinfo.tm_min);  
     }
-    u8g2.print(":");  
-    if (timeinfo.tm_sec>9)
-    {
-      u8g2.print(timeinfo.tm_sec);  
-    }
-    else
-    {
-      u8g2.print("0");
-      u8g2.print(timeinfo.tm_sec);  
-    }  
+	u8g2.drawLine(0,23,128,23);
+	
+	//Date
+	u8g2.setFont(u8g2_font_boutique_bitmap_9x9_bold_tr);
 
-    u8g2.setCursor(0,30);
+	offset = u8g2.getStrWidth("Mon, 03 Mar");
+  u8g2.setCursor((64-(offset/2)),32);
+	u8g2.print(&timeinfo, "%a");
+  u8g2.print(", ");
+  if (timeinfo.tm_mday>9)
+	{
+	  u8g2.print(timeinfo.tm_mday);  
+	}
+	else
+	{
+	  u8g2.print("0");
+	  u8g2.print(timeinfo.tm_mday);  
+	}
+
+	u8g2.print(" ");
+	u8g2.print(&timeinfo, "%b");//month
+	//Temperature and humidity
+	u8g2.setFont(u8g2_font_crox1cb_mf);
+	u8g2.drawLine(64,39,64,64);
+    u8g2.setCursor(2,48);
     u8g2.print(temp,1);
-    u8g2.print(" C");  
-    u8g2.print(" | ");      
+	//u8g2.print(" ");
+	u8g2.print(char(176));
+    u8g2.print("C");  
+    u8g2.setCursor(67,48);      
     u8g2.print(hum,1);
     u8g2.print(" %");    
     
+	
+	//Min max
+	u8g2.setFont(u8g2_font_boutique_bitmap_9x9_t_all);
+    u8g2.setCursor(2,58);
+    if (minTemp <=100.0 && maxTemp>=-100.0 && minTemp>0.0 && maxTemp>0.0)
+	{
+		u8g2.drawUTF8(2,58,"↓");
+		u8g2.setCursor(12,58);
+		u8g2.print(minTemp,0);
+		u8g2.drawUTF8(40,58,"↑");
+		u8g2.setCursor(50,58);
+		u8g2.print(maxTemp,0);
+		
+		u8g2.drawUTF8(66,58,"↓");
+		u8g2.setCursor(76,58);
+		u8g2.print(minHum,0);
+		u8g2.drawUTF8(104,58,"↑");
+		u8g2.setCursor(114,58);
+		u8g2.print(maxHum,0);
+	}
     
 
   
-  
+	u8g2.sendBuffer();
 }
 //gets the local time from the wifi connection. Returns true if a valid time is found.
 bool printLocalTime()
@@ -359,6 +427,47 @@ bool printLocalTime()
   Serial.println(&timeinfo, "%S");
   
   return true;
+}
+
+void getMinMax( )
+{
+	minTemp = 100.0;
+	maxTemp = -100.0;
+	minHum = 100.0;
+	maxHum = -100.0;
+	
+	tempArray[arrayCount] = temp;
+	humArray[arrayCount] = hum;
+	arrayCount++;
+	if (arrayCount > 1440)
+	{
+		arrayCount = 0;
+	}
+	for (int i = 0; i<1440; i++)
+	{
+		//Serial.println(tempArray[i], 7);
+		//Serial.println(minTemp, 7);
+		if ((tempArray[i] < minTemp)&&(tempArray[i] > 0.0))
+		{
+			minTemp = tempArray[i];
+
+		}
+		if ((tempArray[i] > maxTemp)&&(tempArray[i] > 0.0))
+		{
+			maxTemp = tempArray[i];
+		}
+		if ((humArray[i] < minHum)&&(humArray[i] > 0.0))
+		{
+			minHum = humArray[i];
+
+		}
+		if ((humArray[i] > maxHum)&&(humArray[i] > 0.0))
+		{
+			maxHum = humArray[i];
+		}
+	}	
+	
+	
 }
 
 
