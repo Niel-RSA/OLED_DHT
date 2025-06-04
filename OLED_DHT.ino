@@ -142,7 +142,7 @@ void setup() {
   //Wifi Settings
   
   WiFi.mode(WIFI_STA);
-  WiFi.begin("CashX", "CASHX1819");
+  WiFi.begin("ERB Boardroom", "ERBBoa1617");
   
   delay(1000);
   int connCount = 0;
